@@ -3,7 +3,7 @@
 ########################################
 # Stage 1: Dependencies
 ########################################
-FROM golang:1.22-alpine AS deps
+FROM golang:1.25-alpine AS deps
 
 WORKDIR /src
 
@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 ########################################
 # Stage 2: Build
 ########################################
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
 
