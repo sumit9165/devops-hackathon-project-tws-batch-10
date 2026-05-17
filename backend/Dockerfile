@@ -8,7 +8,7 @@ FROM golang:1.22-alpine AS deps
 WORKDIR /src
 
 # Install minimal required packages
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git=2.45.2-r0 ca-certificates=20240226-r0
 
 # Copy dependency manifests first
 COPY go.mod ./
