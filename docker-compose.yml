@@ -1,57 +1,167 @@
+
+name: skillpulse
 services:
   db:
     image: mysql:8.4
+    container_name: skillpulse-db
+
     restart: unless-stopped
+
+    command:
+      - --bind-address=0.0.0.0
+      - --mysql-native-password=ON
+      - --skip-name-resolve
+      - --max-connections=200
+
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${DB_NAME}
       MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+
+    secrets:
+      - db_password
+      - mysql_root_password
+
     ports:
       - "3306:3306"
+
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
     networks:
       - skillpulse
+
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -u$$MYSQL_USER -p$$(cat /run/secrets/db_password)"
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
-    
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+
+    tmpfs:
+      - /tmp
+
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 200
+
   backend:
     image: ${DOCKERHUB_USERNAME}/skillpulse-backend:latest
-    build: ./backend
+
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: skillpulse-backend
+
     restart: unless-stopped
-    networks:
-      - skillpulse
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      PORT: "8080"
-  
+
     depends_on:
       db:
         condition: service_healthy
 
-  frontend:
-    image: ${DOCKERHUB_USERNAME}/skillpulse-frontend:latest
-    build: ./frontend
-    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER}
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      PORT: "8080"
+
+    secrets:
+      - db_password
+
+    expose:
+      - "8080"
+
     networks:
       - skillpulse
-    ports:
-      - "80:80"
+
+    read_only: true
+
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 100
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/skillpulse-frontend:latest
+
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: skillpulse-frontend
+
+    restart: unless-stopped
+
     depends_on:
       - backend
+
+    ports:
+      - "80:8080"
+
+    networks:
+      - skillpulse
+
+    read_only: true
+
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 100
 
 volumes:
   mysql_data:
 
 networks:
   skillpulse:
+    driver: bridge
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+  mysql_root_password:
+    file: ./secrets/mysql_root_password.txt
