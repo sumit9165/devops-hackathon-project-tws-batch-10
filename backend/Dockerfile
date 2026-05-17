@@ -1,20 +1,71 @@
-# Stage 1: Build
-FROM golang:1.26-alpine AS builder
+# syntax=docker/dockerfile:1.7
 
-WORKDIR /app
+########################################
+# Stage 1: Dependencies
+########################################
+FROM golang:1.22-alpine AS deps
 
+WORKDIR /src
+
+# Install minimal required packages
+RUN apk add --no-cache git ca-certificates
+
+# Copy dependency manifests first
+COPY go.mod ./
+
+# Cache Go modules
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+########################################
+# Stage 2: Build
+########################################
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /src
+
+# Build env
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
+
+# Copy Go module cache
+#COPY --from=deps /go/pkg/mod /go/pkg/mod
+
+# Copy source code
 COPY . .
-RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o skillpulse .
 
-# Stage 2: Run
-FROM alpine:3.23
+# Build with cache mounts
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    go build \
+      -trimpath \
+      -buildvcs=false \
+      -ldflags="-s -w -buildid=" \
+      -o /app/skillpulse .
 
-RUN apk --no-cache add ca-certificates
+########################################
+# Stage 3: Runtime
+########################################
+FROM gcr.io/distroless/static-debian12:nonroot
 
+# App directory
 WORKDIR /app
 
-COPY --from=builder /app/skillpulse .
+# Copy binary only
+COPY --from=builder /app/skillpulse /app/skillpulse
 
-EXPOSE 8080
+# Non-root runtime
+USER nonroot:nonroot
 
-CMD ["./skillpulse"]
+# Runtime env
+ENV GIN_MODE=release
+
+# Application port
+EXPOSE 5100
+
+# Graceful shutdown support
+STOPSIGNAL SIGTERM
+
+# Run application
+ENTRYPOINT ["/app/skillpulse"]
