@@ -6,8 +6,34 @@ nodes:
     image: kindest/node:v1.35.1
     extraPortMappings:
       - containerPort: 30080
-        hostPort: 8888
+        hostPort: 80
         protocol: TCP
+
+          # grafana
+      - containerPort: 32000
+        hostPort: 3000
+        protocol: TCP
+
+      # Prometheus
+      - containerPort: 32090
+        hostPort: 9090
+        protocol: TCP
+
+      # Loki
+      - containerPort: 32100
+        hostPort: 3100
+        protocol: TCP
+
+      # OTEL HTTP
+      - containerPort: 30418
+        hostPort: 4318
+        protocol: TCP
+
+      # OTEL gRPC
+      - containerPort: 30417
+        hostPort: 4317
+        protocol: TCP
+
   - role: worker
     image: kindest/node:v1.35.1
   - role: worker
