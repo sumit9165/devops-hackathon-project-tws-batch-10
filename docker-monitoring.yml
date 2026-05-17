@@ -1,0 +1,332 @@
+version: "3.9"
+
+name: skillpulse-monitoring
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
+  loki_data: {}
+  mysql_data: {}
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+  mysql_root_password:
+    file: ./secrets/mysql_root_password.txt
+
+services:
+
+  ###########################################################################
+  # APPLICATION SERVICES
+  ###########################################################################
+
+  db:
+    image: mysql:8.4
+    container_name: skillpulse-db
+
+    restart: unless-stopped
+
+    command:
+      - --bind-address=0.0.0.0
+      - --mysql-native-password=ON
+      - --skip-name-resolve
+      - --max-connections=200
+
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/mysql_root_password
+
+    secrets:
+      - db_password
+      - mysql_root_password
+
+    ports:
+      - "3306:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    networks:
+      - monitoring
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h localhost -u$$MYSQL_USER -p$$(cat /run/secrets/db_password)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+
+    tmpfs:
+      - /tmp
+
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 200
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/skillpulse-backend:latest
+
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+
+    container_name: skillpulse-backend
+
+    restart: unless-stopped
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER}
+      DB_NAME: ${DB_NAME}
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      PORT: "5100"
+
+      # OpenTelemetry
+      OTEL_SERVICE_NAME: skillpulse-backend
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+
+    secrets:
+      - db_password
+
+    expose:
+      - "5100"
+
+    networks:
+      - monitoring
+
+    read_only: true
+
+    tmpfs:
+      - /tmp
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 100
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/skillpulse-frontend:latest
+
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: skillpulse-frontend
+
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "80:5000"
+
+    networks:
+      - monitoring
+
+    read_only: true
+
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    mem_limit: 256m
+    cpus: 0.50
+    pids_limit: 100
+
+  ###########################################################################
+  # MONITORING STACK
+  ###########################################################################
+
+  grafana:
+    image: grafana/grafana-enterprise
+    container_name: grafana
+
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+
+    restart: unless-stopped
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - prometheus_data:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+    networks:
+      - monitoring
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+
+    restart: unless-stopped
+
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
+    expose:
+      - 9100
+
+    networks:
+      - monitoring
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+
+    restart: unless-stopped
+
+    ports:
+      - "8081:8080"
+
+    privileged: true
+
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+
+    restart: unless-stopped
+
+    ports:
+      - "3100:3100"
+
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+
+    command: -config.file=/etc/loki/config.yaml
+
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+
+    restart: unless-stopped
+
+    depends_on:
+      - loki
+
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yaml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    command: -config.file=/etc/promtail/config.yaml
+
+    networks:
+      - monitoring
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+
+    restart: unless-stopped
+
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+
+    volumes:
+      - ./otel-collector/otel-collector-config.yml:/etc/otelcol-contrib/config.yaml:ro
+
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+    expose:
+      - "8889"
+
+    networks:
+      - monitoring
+
