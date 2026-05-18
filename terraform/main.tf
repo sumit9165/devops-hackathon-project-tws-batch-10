@@ -1,5 +1,5 @@
 resource "aws_key_pair" "hackathon_key" {
-  key_name   = "hackathon-key"
+  key_name   = "hackathon"
   public_key = file("${path.module}/hackathon.pub")
 }
 
