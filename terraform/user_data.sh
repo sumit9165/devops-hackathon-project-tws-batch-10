@@ -14,6 +14,7 @@ dnf install -y docker
 systemctl start docker
 systemctl enable docker
 usermod -aG docker ec2-user
+yum install git -y
 
 # CRITICAL: Wait for Docker socket to be completely ready before proceeding
 echo "Waiting for Docker daemon to start..."
