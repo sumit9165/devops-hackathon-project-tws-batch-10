@@ -141,7 +141,25 @@ Every line earns its place:
 Set them at `Settings → Secrets and variables → Actions` on your fork.
 
 ---
+## Docker Secrets Architecture 
 
+Docker stores secrets securely under:
+```
+/run/secrets/
+```
+Applications read credentials from files instead of environment variables.
+
+## Example Secret Files used in docker 
+
+Project structure:
+```
+secrets/
+├── db_password.txt
+├── mysql_root_password.txt
+```
+**also add secrets/ in .env file**
+
+---
 ## The application itself
 
 A three-tier app — kept tiny on purpose so the pipeline is the star.
