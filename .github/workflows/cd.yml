@@ -27,7 +27,7 @@ jobs:
             set -e
 
             APP_DIR="$HOME/github-actions-kubernetes-masterclass"
-            BRANCH="test"
+            BRANCH="main"
 
             # Clone repo if missing
             if [ ! -d "$APP_DIR" ]; then
