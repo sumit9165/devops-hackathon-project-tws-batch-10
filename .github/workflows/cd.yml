@@ -54,15 +54,29 @@ jobs:
             # > .env
 
             # Restart application
-            kind create cluster --config k8s/kind-config.yaml --name skillpulse
-            kubectl apply -f k8s/00-namespace.yaml \
-              -f k8s/10-mysql.yaml \
-              -f k8s/20-backend.yaml \
-              -f k8s/30-frontend.yaml
-            kind get clusters
-            kubectl get pods -n skillpulse 
-            kubectl apply -f observability/k8s/
-            kubectl get pods -n observability
+            # kind create cluster --config k8s/kind-config.yaml --name skillpulse
+            # Restart application
+            CLUSTER_NAME="skillpulse"
+            
+            # Create cluster only if it does not exist
+            if ! kind get clusters | grep -q "^${CLUSTER_NAME}$"; then
+              echo "Creating kind cluster: ${CLUSTER_NAME}"
+              kind create cluster --config k8s/kind-config.yaml --name ${CLUSTER_NAME}
+            else
+              echo "Kind cluster already exists: ${CLUSTER_NAME}"
+            fi
+            
+            # Ensure kubectl uses correct context
+            kubectl cluster-info
+            
+                        kubectl apply -f k8s/00-namespace.yaml \
+                          -f k8s/10-mysql.yaml \
+                          -f k8s/20-backend.yaml \
+                          -f k8s/30-frontend.yaml
+                        kind get clusters
+                        kubectl get pods -n skillpulse 
+                        kubectl apply -f observability/k8s/
+                        kubectl get pods -n observability
 
             # Show containers
             docker ps
