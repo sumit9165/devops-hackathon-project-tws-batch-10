@@ -62,7 +62,7 @@ USER nonroot:nonroot
 ENV GIN_MODE=release
 
 # Application port
-EXPOSE 5100
+EXPOSE 8080
 
 # Graceful shutdown support
 STOPSIGNAL SIGTERM
