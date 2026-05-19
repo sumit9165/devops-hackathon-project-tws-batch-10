@@ -30,7 +30,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "5100"
+		port = "8080"
 	}
 
 	log.Printf("SkillPulse API running on port %s", port)
